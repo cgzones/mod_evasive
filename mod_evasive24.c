@@ -21,15 +21,15 @@
 
 */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
+//#include <sys/types.h>
+//#include <sys/socket.h>
+//#include <sys/stat.h>
+//#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <errno.h>
-#include <unistd.h>  // getpid(2)
+//#include <unistd.h>  // getpid(2)
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
@@ -45,7 +45,7 @@
 
 AP_DECLARE_MODULE(evasive);
 
-#define MAILER  "/bin/mail %s"
+//#define MAILER  "/bin/mail %s"
 
 #define DEFAULT_HASH_TBL_SIZE   3079UL  // Default hash table size
 #define DEFAULT_PAGE_COUNT      2       // Default maximum page hit count per interval
@@ -53,7 +53,7 @@ AP_DECLARE_MODULE(evasive);
 #define DEFAULT_PAGE_INTERVAL   1       // Default 1 Second page interval
 #define DEFAULT_SITE_INTERVAL   1       // Default 1 Second site interval
 #define DEFAULT_BLOCKING_PERIOD 10      // Default for Detected IPs; blocked for 10 seconds
-#define DEFAULT_LOG_DIR         "/tmp"  // Default temp directory
+//#define DEFAULT_LOG_DIR         "/tmp"  // Default temp directory
 #define DEFAULT_HTTP_REPLY      HTTP_FORBIDDEN // Default HTTP Reply code (403)
 
 /* END DoS Evasive Maneuvers Definitions */
@@ -140,9 +140,9 @@ typedef struct {
     unsigned int site_count;
     int site_interval;
     int blocking_period;
-    char *email_notify;
+    /*char *email_notify;
     char *log_dir;
-    char *system_command;
+    char *system_command;*/
     int http_reply;
 } evasive_config;
 
@@ -187,9 +187,9 @@ static void * create_dir_conf(apr_pool_t *p, __attribute__((unused)) char *conte
         .site_count = DEFAULT_SITE_COUNT,
         .site_interval = DEFAULT_SITE_INTERVAL,
         .blocking_period = DEFAULT_BLOCKING_PERIOD,
-        .email_notify = NULL,
-        .log_dir = NULL,
-        .system_command = NULL,
+        //.email_notify = NULL,
+        //.log_dir = NULL,
+        //.system_command = NULL,
         .http_reply = DEFAULT_HTTP_REPLY,
     };
     if (!cfg->ip_list || !cfg->site_list || !cfg->uri_list)
@@ -538,42 +538,60 @@ static int access_checker(request_rec *r)
         }
 
         /* Perform email notification and system functions */
+#if 0
         if (ret == cfg->http_reply) {
             char filename[1024];
             struct stat s;
             FILE *file;
+            int rc;
 
-            snprintf(filename, sizeof(filename), "%s/dos-%s", cfg->log_dir != NULL ? cfg->log_dir : DEFAULT_LOG_DIR, r->useragent_ip);
-            if (stat(filename, &s)) {
-                file = fopen(filename, "w");
-                if (file != NULL) {
-                    fprintf(file, "%ld\n", getpid());
-                    fclose(file);
+            rc = snprintf(filename, sizeof(filename), "%s/dos-%s", cfg->log_dir != NULL ? cfg->log_dir : DEFAULT_LOG_DIR, r->useragent_ip);
+            if (rc < 0 || (size_t)rc >= sizeof(filename)) {
+                ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't format logfile %s/dos-%s", cfg->log_dir != NULL ? cfg->log_dir : DEFAULT_LOG_DIR, r->useragent_ip);
+            } else {
+                rc = stat(filename, &s);
+                if (rc == -1 && errno == ENOENT) {
+                    file = fopen(filename, "wex");
+                    if (file != NULL) {
+                        fprintf(file, "%ld\n", (long) getpid());
+                        fclose(file);
 
-                    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "Blacklisting address %s: possible DoS attack.", r->useragent_ip);
-                    if (cfg->email_notify != NULL) {
-                        snprintf(filename, sizeof(filename), MAILER, cfg->email_notify);
-                        file = popen(filename, "w");
-                        if (file != NULL) {
-                            fprintf(file, "To: %s\n", cfg->email_notify);
-                            fprintf(file, "Subject: HTTP BLACKLIST %s\n\n", r->useragent_ip);
-                            fprintf(file, "mod_evasive HTTP Blacklisted %s\n", r->useragent_ip);
-                            pclose(file);
+                        ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "Blacklisting address %s: possible DoS attack.", r->useragent_ip);
+                        if (cfg->email_notify != NULL) {
+                            snprintf(filename, sizeof(filename), MAILER, cfg->email_notify);
+                            file = popen(filename, "we");
+                            if (file != NULL) {
+                                fprintf(file, "To: %s\n", cfg->email_notify);
+                                fprintf(file, "Subject: HTTP BLACKLIST %s\n\n", r->useragent_ip);
+                                fprintf(file, "mod_evasive HTTP Blacklisted %s\n", r->useragent_ip);
+                                pclose(file);
+                            } else {
+                                ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't run command '%s': %m", filename);
+                            }
                         }
+
+                        if (cfg->system_command != NULL) {
+                            rc = snprintf(filename, sizeof(filename), cfg->system_command, r->useragent_ip);
+                            if (rc < 0 || (size_t)rc >= sizeof(filename)) {
+                                ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't format system command '%s' with address%s: %m", cfg->system_command, r->useragent_ip);
+                            } else {
+                                system(filename);
+                            }
+                        }
+
+                    } else {
+                        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't open logfile %s: %m", filename);
                     }
 
-                    if (cfg->system_command != NULL) {
-                        snprintf(filename, sizeof(filename), cfg->system_command, r->useragent_ip);
-                        system(filename);
-                    }
-
-                } else {
-                    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't open logfile %s: %s",filename, strerror(errno));
+                } /* if (temp file does not exist) */ else if (rc == -1) {
+                    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Couldn't access logfile %s: %m", filename);
                 }
 
-            } /* if (temp file does not exist) */
+
+            } /* if (tmpf file string formatted) */
 
         } /* if (ret == cfg->http_reply) */
+#endif
 
     } /* if (r->prev == NULL && r->main == NULL && cfg->hit_list != NULL) */
 
@@ -672,9 +690,9 @@ static apr_status_t destroy_config(void *dconfig) {
         pcre_vector_destroy(&cfg->uri_whitelist);
         pcre_vector_destroy(&cfg->uri_blocklist);
         free(cfg->ip_whitelist.data);
-        free(cfg->email_notify);
+        /*free(cfg->email_notify);
         free(cfg->log_dir);
-        free(cfg->system_command);
+        free(cfg->system_command);*/
         /* cfg is pool allocated */
    }
    return APR_SUCCESS;
@@ -1168,7 +1186,7 @@ get_blocking_period(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const
     return NULL;
 }
 
-static const char *
+/*static const char *
 get_log_dir(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char *value) {
     evasive_config *cfg = (evasive_config *) dconfig;
     if (value != NULL && value[0] != 0) {
@@ -1202,7 +1220,7 @@ get_system_command(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const 
     }
 
     return NULL;
-}
+}*/
 
 static const char *
 get_http_reply(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char *value) {
@@ -1248,14 +1266,14 @@ static const command_rec access_cmds[] =
     AP_INIT_TAKE1("DOSBlockingPeriod", get_blocking_period, NULL, RSRC_CONF,
             "Set blocking period for detected DoS IPs"),
 
-    AP_INIT_TAKE1("DOSEmailNotify", get_email_notify, NULL, RSRC_CONF,
+    /*AP_INIT_TAKE1("DOSEmailNotify", get_email_notify, NULL, RSRC_CONF,
             "Set email notification"),
 
     AP_INIT_TAKE1("DOSLogDir", get_log_dir, NULL, RSRC_CONF,
             "Set log dir"),
 
     AP_INIT_TAKE1("DOSSystemCommand", get_system_command, NULL, RSRC_CONF,
-            "Set system command on DoS"),
+            "Set system command on DoS"),*/
 
     AP_INIT_ITERATE("DOSWhitelist", whitelist_ip, NULL, RSRC_CONF,
             "IP-addresses wildcards to whitelist"),
