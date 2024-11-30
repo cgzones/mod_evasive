@@ -1,0 +1,4 @@
+/.libs
+/mod_evasive*.la
+/mod_evasive*.lo
+/mod_evasive*.slo
