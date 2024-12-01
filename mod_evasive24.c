@@ -55,6 +55,7 @@ AP_DECLARE_MODULE(evasive);
 #define DEFAULT_BLOCKING_PERIOD 10      // Default for Detected IPs; blocked for 10 seconds
 //#define DEFAULT_LOG_DIR         "/tmp"  // Default temp directory
 #define DEFAULT_HTTP_REPLY      HTTP_FORBIDDEN // Default HTTP Reply code (403)
+#define DEFAULT_ENABLED         (-1)    // Default enabled state (to differentiate from explicitly disabled)
 
 /* END DoS Evasive Maneuvers Definitions */
 
@@ -174,7 +175,7 @@ static void * create_dir_conf(apr_pool_t *p, __attribute__((unused)) char *conte
     }
 
     *cfg = (evasive_config) {
-        .enabled = 0,
+        .enabled = DEFAULT_ENABLED,
         .ip_list = ntt_create(DEFAULT_HASH_TBL_SIZE),
         .site_list = ntt_create(DEFAULT_HASH_TBL_SIZE),
         .uri_list = ntt_create(DEFAULT_HASH_TBL_SIZE),
@@ -197,6 +198,69 @@ static void * create_dir_conf(apr_pool_t *p, __attribute__((unused)) char *conte
 
     return cfg;
 }
+
+/*static struct ip_vector merge_ip_vector(const struct ip_vector *base, const struct ip_vector *add)
+{
+    struct ip_node *newdata;
+    size_t newsize;
+
+    newsize = base->size + add->size;
+    if (newsize == 0)
+        return (struct ip_vector) { .data = NULL, .size = 0 };
+
+    newdata = malloc(newsize * sizeof(*newdata));
+    if (!newdata) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "Failed to allocate memory for IP vector");
+        return (struct ip_vector) { .data = NULL, .size = 0 };
+    }
+
+    for (size_t i = 0; i < base->size; i++)
+        memcpy(&newdata[i], &base->data[i], sizeof(struct ip_node));
+
+    for (size_t i = 0, j = base->size; i < add->size; i++, j++)
+        memcpy(&newdata[j], &add->data[i], sizeof(struct ip_node));
+
+    return (struct ip_vector) { .data = newdata, .size = newsize };
+}
+
+static void * merge_dir_conf(apr_pool_t *pool, void *pbase, void *padd) {
+    evasive_config *base = pbase;
+    evasive_config *add = padd;
+    evasive_config *conf = create_dir_conf(pool, NULL);
+    size_t hash_table_size;
+
+    if (!conf)
+        return NULL;
+
+#define MERGE(member, defval) (add->member != (defval) ? add->member : base->member)
+    hash_table_size = MERGE(hash_table_size, DEFAULT_HASH_TBL_SIZE);
+
+    *conf = (evasive_config) {
+        .enabled = MERGE(enabled, DEFAULT_ENABLED),
+        .hit_list = ntt_create(hash_table_size),
+        .ip_list = ntt_create(hash_table_size),
+        .hash_table_size = hash_table_size,
+        .uri_whitelist = (struct pcre_vector) { .data = add->uri_whitelist.data, .size = add->uri_whitelist.size },
+        .uri_blocklist = (struct pcre_vector) { .data = add->uri_blocklist.data, .size = add->uri_blocklist.size },
+        .ip_whitelist = merge_ip_vector(&base->ip_whitelist, &add->ip_whitelist),
+        .page_count = MERGE(page_count, DEFAULT_PAGE_COUNT),
+        .page_interval = MERGE(page_interval, DEFAULT_PAGE_INTERVAL),
+        .site_count = MERGE(site_count, DEFAULT_SITE_COUNT),
+        .site_interval = MERGE(site_interval, DEFAULT_SITE_INTERVAL),
+        .blocking_period = MERGE(blocking_period, DEFAULT_BLOCKING_PERIOD),
+        //.email_notify = ,
+        //.log_dir = ,
+        //.system_command = ,
+        .http_reply = MERGE(http_reply, DEFAULT_HTTP_REPLY),
+    };
+    add->uri_whitelist = (struct pcre_vector) { .data = NULL, .size = 0 };
+    add->uri_blocklist = (struct pcre_vector) { .data = NULL, .size = 0 };
+#undef MERGE
+    if (!conf->hit_list || !conf->ip_list)
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "Failed to allocate hashtable");
+
+    return conf;
+}*/
 
 static int parse_wildcard(const char *ip, struct in_addr *addr, uint32_t *mask)
 {
@@ -453,9 +517,12 @@ static int access_checker(request_rec *r)
     int ret = OK;
     const char *log_reason = NULL;
 
+    // TODO(cgzones): store persistently
+    //ap_set_module_config(r->per_dir_config, &evasive_module, cfg);
+
     /* BEGIN DoS Evasive Maneuvers Code */
 
-    if (cfg->enabled && r->prev == NULL && r->main == NULL && cfg->ip_list != NULL && cfg->site_list != NULL && cfg->uri_list) {
+    if (cfg->enabled == 1 && r->prev == NULL && r->main == NULL && cfg->ip_list != NULL && cfg->site_list != NULL && cfg->uri_list) {
         char hash_key[2048];
         struct ntt_node *ip_node, *n;
         apr_time_t t = r->request_time / 1000 / 1000; /* convert us to s */
@@ -1054,7 +1121,7 @@ get_enabled(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char *v
         cfg->enabled = 0;
     } else {
         ap_log_error(APLOG_MARK, APLOG_WARNING, 0, ap_server_conf, "Invalid DOSEnabled value '%s', mod_evasive disabled.", value);
-        cfg->enabled = 0;
+        cfg->enabled = DEFAULT_ENABLED;
     }
 
     return NULL;
@@ -1245,25 +1312,25 @@ get_http_reply(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char
 
 static const command_rec access_cmds[] =
 {
-    AP_INIT_TAKE1("DOSEnabled", get_enabled, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSEnabled", get_enabled, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Enable mod_evasive (either globally or in the virtualhost where it is specified)"),
 
-    AP_INIT_TAKE1("DOSHashTableSize", get_hash_tbl_size, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSHashTableSize", get_hash_tbl_size, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set size of hash table"),
 
-    AP_INIT_TAKE1("DOSPageCount", get_page_count, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSPageCount", get_page_count, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set maximum page hit count per interval"),
 
-    AP_INIT_TAKE1("DOSSiteCount", get_site_count, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSSiteCount", get_site_count, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set maximum site hit count per interval"),
 
-    AP_INIT_TAKE1("DOSPageInterval", get_page_interval, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSPageInterval", get_page_interval, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set page interval"),
 
-    AP_INIT_TAKE1("DOSSiteInterval", get_site_interval, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSSiteInterval", get_site_interval, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set site interval"),
 
-    AP_INIT_TAKE1("DOSBlockingPeriod", get_blocking_period, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("DOSBlockingPeriod", get_blocking_period, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Set blocking period for detected DoS IPs"),
 
     /*AP_INIT_TAKE1("DOSEmailNotify", get_email_notify, NULL, RSRC_CONF,
@@ -1275,16 +1342,16 @@ static const command_rec access_cmds[] =
     AP_INIT_TAKE1("DOSSystemCommand", get_system_command, NULL, RSRC_CONF,
             "Set system command on DoS"),*/
 
-    AP_INIT_ITERATE("DOSWhitelist", whitelist_ip, NULL, RSRC_CONF,
+    AP_INIT_ITERATE("DOSWhitelist", whitelist_ip, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "IP-addresses wildcards to whitelist"),
 
-    AP_INIT_ITERATE("DOSWhitelistUri", whitelist_uri, NULL, RSRC_CONF,
+    AP_INIT_ITERATE("DOSWhitelistUri", whitelist_uri, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Files/paths regexes to whitelist"),
 
-    AP_INIT_ITERATE("DOSBlocklistUri", blocklist_uri, NULL, RSRC_CONF,
+    AP_INIT_ITERATE("DOSBlocklistUri", blocklist_uri, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "Files/paths regexes to blocklist"),
 
-    AP_INIT_ITERATE("DOSHTTPStatus", get_http_reply, NULL, RSRC_CONF,
+    AP_INIT_ITERATE("DOSHTTPStatus", get_http_reply, NULL, RSRC_CONF /*| ACCESS_CONF*/,
             "HTTP reply code"),
 
     { NULL }
@@ -1299,7 +1366,7 @@ module AP_MODULE_DECLARE_DATA evasive_module =
 {
     STANDARD20_MODULE_STUFF,
     create_dir_conf,
-    NULL,
+    NULL /*merge_dir_conf*/,
     NULL,
     NULL,
     access_cmds,
