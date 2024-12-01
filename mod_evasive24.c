@@ -1313,3 +1313,8 @@ module AP_MODULE_DECLARE_DATA evasive_module =
     register_hooks,
     AP_MODULE_FLAG_NONE
 };
+
+/* TODO(cgzones):
+ *
+ *  - drop command feature or remove lockfile on return and add timeout
+ */
