@@ -128,7 +128,8 @@ struct ip_vector {
 
 typedef struct {
     int enabled;
-    struct ntt *hit_list;   // Our dynamic hash table
+    struct ntt *hit_list;   // Our dynamic hash table for site and URI hits
+    struct ntt *ip_list;    // Our dynamic hash table for blocked IPs
     size_t hash_table_size;
     struct pcre_vector uri_whitelist;
     struct pcre_vector uri_blocklist;
@@ -174,6 +175,7 @@ static void * create_dir_conf(apr_pool_t *p, __attribute__((unused)) char *conte
     *cfg = (evasive_config) {
         .enabled = 0,
         .hit_list = ntt_create(DEFAULT_HASH_TBL_SIZE),
+        .ip_list = ntt_create(DEFAULT_HASH_TBL_SIZE),
         .hash_table_size = DEFAULT_HASH_TBL_SIZE,
         .uri_whitelist = (struct pcre_vector) { .data = NULL, .size = 0 },
         .uri_blocklist = (struct pcre_vector) { .data = NULL, .size = 0 },
@@ -188,7 +190,7 @@ static void * create_dir_conf(apr_pool_t *p, __attribute__((unused)) char *conte
         .system_command = NULL,
         .http_reply = DEFAULT_HTTP_REPLY,
     };
-    if (!cfg->hit_list)
+    if (!cfg->hit_list || !cfg->ip_list)
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "Failed to allocate hashtable");
 
     return cfg;
@@ -451,7 +453,7 @@ static int access_checker(request_rec *r)
 
     /* BEGIN DoS Evasive Maneuvers Code */
 
-    if (cfg->enabled && r->prev == NULL && r->main == NULL && cfg->hit_list != NULL) {
+    if (cfg->enabled && r->prev == NULL && r->main == NULL && cfg->hit_list != NULL && cfg->ip_list != NULL) {
         char hash_key[2048];
         struct ntt_node *ip_node, *n;
         apr_time_t t = r->request_time / 1000 / 1000; /* convert us to s */
@@ -461,7 +463,7 @@ static int access_checker(request_rec *r)
             return OK;
 
         /* First see if the IP itself is on "hold" */
-        ip_node = ntt_find(cfg->hit_list, r->useragent_ip);
+        ip_node = ntt_find(cfg->ip_list, r->useragent_ip);
 
         if (ip_node != NULL && t-ip_node->timestamp<cfg->blocking_period) {
 
@@ -481,7 +483,7 @@ static int access_checker(request_rec *r)
                 if (!ip_node || t-ip_node->timestamp>=cfg->blocking_period)
                     log_reason = "URI blocklist";
                 ret = cfg->http_reply;
-                ntt_insert(cfg->hit_list, r->useragent_ip, t);
+                ntt_insert(cfg->ip_list, r->useragent_ip, t);
             } else {
                 /* Has URI been hit too much? */
                 snprintf(hash_key, sizeof(hash_key), "%s_%s", r->useragent_ip, r->uri);
@@ -494,7 +496,7 @@ static int access_checker(request_rec *r)
                         if (!ip_node || t-ip_node->timestamp>=cfg->blocking_period)
                             log_reason = "URI DOS";
                         ret = cfg->http_reply;
-                        ntt_insert(cfg->hit_list, r->useragent_ip, t);
+                        ntt_insert(cfg->ip_list, r->useragent_ip, t);
                     } else {
 
                         /* Reset our hit count list as necessary */
@@ -518,7 +520,7 @@ static int access_checker(request_rec *r)
                         if (!ip_node || t-ip_node->timestamp>=cfg->blocking_period)
                             log_reason = "site DOS";
                         ret = cfg->http_reply;
-                        ntt_insert(cfg->hit_list, r->useragent_ip, t);
+                        ntt_insert(cfg->ip_list, r->useragent_ip, t);
                     } else {
 
                         /* Reset our hit count list as necessary */
@@ -664,6 +666,7 @@ static apr_status_t destroy_config(void *dconfig) {
     evasive_config *cfg = (evasive_config *) dconfig;
     if (cfg != NULL) {
         ntt_destroy(cfg->hit_list);
+        ntt_destroy(cfg->ip_list);
         pcre_vector_destroy(&cfg->uri_whitelist);
         pcre_vector_destroy(&cfg->uri_blocklist);
         free(cfg->ip_whitelist.data);
@@ -1055,6 +1058,11 @@ get_hash_tbl_size(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const c
         ntt_destroy(cfg->hit_list);
         cfg->hit_list = ntt_create(cfg->hash_table_size);
         if (!cfg->hit_list)
+            ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "Failed to allocate hashtable");
+
+        ntt_destroy(cfg->ip_list);
+        cfg->ip_list = ntt_create(cfg->hash_table_size);
+        if (!cfg->ip_list)
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "Failed to allocate hashtable");
     }
 
