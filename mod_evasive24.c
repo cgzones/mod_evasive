@@ -1177,3 +1177,10 @@ module AP_MODULE_DECLARE_DATA evasive_module =
     register_hooks,
     AP_MODULE_FLAG_NONE
 };
+
+/* TODO(cgzones):
+ *
+ *  - drop command feature or remove lockfile on return and add timeout
+ *  - split hashtable for client ip, whitelist ip, whitelist url, etc...
+ *  - hashtable auto-growth and cleanup of ancient entries
+ */
