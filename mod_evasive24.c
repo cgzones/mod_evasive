@@ -290,7 +290,7 @@ static int parse_wildcard(const char *ip, struct in_addr *addr, uint32_t *mask)
             if (errno || *endptr != '\0' || val > 255)
                 goto err;
 
-            ip_byte += val;
+            ip_byte += (uint32_t)val;
             mask_byte += 255;
         }
 
@@ -358,7 +358,7 @@ static const char *whitelist_ip(__attribute__((unused)) cmd_parms *cmd, void *dc
 
     cidr_split = strchr(ip, '/');
     if (cidr_split) {
-        ip_copy = strndup(ip, cidr_split - ip);
+        ip_copy = strndup(ip, (size_t)(cidr_split - ip));
         if (!ip_copy) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, "DOSWhitelist: OOM");
             return NULL;
@@ -794,7 +794,7 @@ static size_t ntt_prime_get_next(size_t n) {
 
 static size_t ntt_hashcode(const struct ntt *ntt, const char *key) {
     size_t val = 0;
-    for (; *key; ++key) val = 5 * val + *key;
+    for (; *key; ++key) val = 5 * val + (size_t)*key;
     return(val % ntt->size);
 }
 
@@ -1140,7 +1140,7 @@ get_hash_tbl_size(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const c
                      value, DEFAULT_HASH_TBL_SIZE);
         cfg->hash_table_size = DEFAULT_HASH_TBL_SIZE;
     } else {
-        cfg->hash_table_size = n;
+        cfg->hash_table_size = (size_t)n;
 
         ntt_destroy(cfg->ip_list);
         cfg->ip_list = ntt_create(cfg->hash_table_size);
@@ -1171,7 +1171,7 @@ get_page_count(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char
                      value, DEFAULT_PAGE_COUNT);
         cfg->page_count = DEFAULT_PAGE_COUNT;
     } else {
-        cfg->page_count = n;
+        cfg->page_count = (unsigned int)n;
     }
 
     return NULL;
@@ -1190,7 +1190,7 @@ get_site_count(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char
                      value, DEFAULT_SITE_COUNT);
         cfg->site_count = DEFAULT_SITE_COUNT;
     } else {
-        cfg->site_count = n;
+        cfg->site_count = (unsigned int)n;
     }
 
     return NULL;
@@ -1209,7 +1209,7 @@ get_page_interval(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const c
                      value, DEFAULT_PAGE_INTERVAL);
         cfg->page_interval = DEFAULT_PAGE_INTERVAL;
     } else {
-        cfg->page_interval = n;
+        cfg->page_interval = (int)n;
     }
 
     return NULL;
@@ -1228,7 +1228,7 @@ get_site_interval(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const c
                      value, DEFAULT_SITE_INTERVAL);
         cfg->site_interval = DEFAULT_SITE_INTERVAL;
     } else {
-        cfg->site_interval = n;
+        cfg->site_interval = (int)n;
     }
 
     return NULL;
@@ -1247,7 +1247,7 @@ get_blocking_period(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const
                      value, DEFAULT_BLOCKING_PERIOD);
         cfg->blocking_period = DEFAULT_BLOCKING_PERIOD;
     } else {
-        cfg->blocking_period = n;
+        cfg->blocking_period = (int)n;
     }
 
     return NULL;
@@ -1302,7 +1302,7 @@ get_http_reply(__attribute__((unused)) cmd_parms *cmd, void *dconfig, const char
                      value, HTTP_FORBIDDEN);
         cfg->http_reply = HTTP_FORBIDDEN;
     } else {
-        cfg->http_reply = n;
+        cfg->http_reply = (int)n;
     }
 
     return NULL;
