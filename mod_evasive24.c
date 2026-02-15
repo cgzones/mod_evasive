@@ -815,8 +815,8 @@ static size_t ntt_prime_get_next(size_t n) {
 /* Find the numeric position in the hash table based on key and modulus */
 
 static size_t ntt_hashcode(const struct ntt *ntt, const char *key) {
-    size_t val = 0;
-    for (; *key; ++key) val = 5 * val + (size_t)*key;
+    size_t val = 5381;
+    for (; *key; ++key) val = ((val << 5) + val) + (size_t)*key;
     return(val % ntt->size);
 }
 
